@@ -1,48 +1,68 @@
-#!/usr/bin/env python
+from MavlinkThread import *
+import AppGlobal
+from Timer import *
 
-from TunnelMessage import *
-from TagInfoList import *
-
-import sys
-import time
+import tkinter as tk
 import logging
-import struct
+import threading
 
-from pymavlink import mavutil
+mavlinkThread = None
 
-logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s |  %(filename)s:%(lineno)d')
+class App(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        
+        self._updateUIPending = False
+        self.mainloopRunning = False
 
-tagInfoList = TagInfoList()
-tagInfoList.checkForTagFile()
-tagInfoList.loadTags()
+        self.geometry( "600x400" )
+        self.controllerHeartbeatIndicator = tk.Frame(self, width = 50, bg = "red")
+        self.controllerHeartbeatIndicator.pack(fill=tk.Y, side=tk.LEFT)
+        self.detectorsFrame = tk.Frame(self, bg = "white")
+        self.detectorsFrame.pack(expand=True, fill=tk.BOTH, side=tk.LEFT, padx=10, pady=10)
 
-# create a mavlink serial instance
-mavlink = mavutil.mavlink_connection("udpin:localhost:14550")
+    def updateUI(self):
+        # Allow multiple calls to updateUI() to be coalesced into a single call to _updateUI()
+        if not self._updateUIPending:
+            self._updateUIPending = True
+            self.after(200, self._updateUI)
 
-# wait for the heartbeat msg to find the system ID
-mavlink.wait_heartbeat()
-print("Heartbeat from APM (system %u component %u)" % (mavlink.target_system, mavlink.target_system))
-
-logging.info("Using Mavlink 2.0 %s", mavutil.mavlink20())
-
-lastHeartbeatTime = 0
-
-while True:
-    curTime = time.time()
-    if curTime - lastHeartbeatTime > 1:
-        logging.info("Sending heartbeat")
-        mavlink.mav.heartbeat_send(mavutil.mavlink.MAV_TYPE_GCS, mavutil.mavlink.MAV_AUTOPILOT_INVALID, 0, 0, 0)
-        lastHeartbeatTime = curTime
-
-    tunnelMsg = mavlink.recv_match(type="TUNNEL", blocking=True, timeout=1)
-    if tunnelMsg:
-        if tunnelMsg.get_type() == "BAD_DATA":
-            logging.warning("recv_match: Bad data")
+    def _updateUI(self):
+        self._updateUIPending = False
+        self.controllerHeartbeatIndicator.config(bg = "red" if mavlinkThread.commandHandler.controllerLostHeartbeat else "green")
+        if len(self.detectorsFrame.winfo_children()) == 0:
+            self._createDetectorUI()
         else:
-            logging.info("TUNNEL received: length %d", tunnelMsg.payload_length)
-            command = TunnelMessageHandler.commandFromMavlinkMessage(tunnelMsg)
-            if command == TunnelCommand.COMMAND_ID_HEARTBEAT:
-                heartbeat = TunnelMessageHandler.heartbeatFromMavlinkMessage(tunnelMsg)
-                logging.info("Heartbeat: system_id %d, status %s", heartbeat.system_id, HeartbeatStatus(heartbeat.status).name)
-            else:
-                logging.info("Unprocessed command: %s", command.name)
+            self._updateDetectorUI()
+
+    def _createDetectorUI(self):
+        logging.info("Creating detector UI")
+        for detectorInfo in mavlinkThread.commandHandler.detectorInfoList:
+            logging.info("Creating detector UI for detector id {0}".format(detectorInfo.tagId)) 
+            detectorFrame = tk.Frame(self.detectorsFrame, bg="red", borderwidth=2, relief=tk.RAISED)
+            detectorFrame.pack(expand=True, fill=tk.BOTH)
+
+    def _updateDetectorUI(self):
+        logging.info("Updating detector UI")
+        pass
+
+    def shutdown(self):
+        self.destroy()
+
+def startMavlinkThread():
+    global mavlinkThread
+    mavlinkThread = MavlinkThread()
+    mavlinkThread.start()
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s |  %(filename)s:%(lineno)d')
+    AppGlobal.app = App()
+    AppGlobal.app.after(500, startMavlinkThread)
+    try:
+        AppGlobal.app.mainloopRunning = True
+        AppGlobal.app.mainloop()
+    except:
+        pass
+    AppGlobal.app.mainloopRunning = False
+    mavlinkThread.stop()
+    mavlinkThread.join()

@@ -12,17 +12,21 @@ class ExtendedTagInfo:
         self.name           = "<undefined>"
         self.ip_msecs_1_id  = "<undefined>"
         self.ip_msecs_2_id  = "<undefined>"
+        self._radioCenterHz = 0
 
 class TagInfoList(list):
     def __init__(self):
         self._nChannels     = 100
-        self.radioCenterHz  = 0
+        self._radioCenterHz = 0
     
     def checkForTagFile(self):
         tagFilename = self._tagInfoFilePath()
         tagFile     = open(tagFilename)
         if not tagFile:
             raise FileNotFoundError("TagInfo.txt does not exist")
+        
+    def isEmpty(self):
+        return len(self) == 0
 
     def loadTags(self):
         self.clear()
@@ -53,7 +57,7 @@ class TagInfoList(list):
 
                 tagValuePosition = 0
 
-                extTagInfo.tagInfo.hdr_command = TunnelCommand.COMMAND_ID_TAG.value
+                extTagInfo.tagInfo.hdr_command = TunnelCommand.COMMAND_ID_TAG
 
                 tagValueString          = tagValues[tagValuePosition]
                 tagValuePosition        += 1
@@ -156,6 +160,8 @@ class TagInfoList(list):
         if len(self) != 1:
             raise Exception("_channelizerTuner called with 0 or more than 1 tags")
         self._radioCenterHz = self[0].tagInfo.frequency_hz
+        self[0].tagInfo.channelizer_channel_number               = 1
+        self[0].tagInfo.channelizer_channel_center_frequency_hz  = 146000000
         return True
 
     def _firstChannelFreqHz(self, centerFreqHz):
